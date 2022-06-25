@@ -1,0 +1,8 @@
+TUN=$(uci -q get clatun.config.tun)
+ENABLED=$(uci -q get clatun.config.enabled)
+[ "$ENABLED" -ne 0 ] || exit 0
+[ "$ACTION" = "add" ] || exit 0
+[ "$DEVICENAME" = "$TUN" ] || exit 0
+/etc/init.d/clatun enabled || exit 0
+
+/etc/init.d/clatun start_tun

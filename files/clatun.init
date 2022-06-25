@@ -1,0 +1,150 @@
+#!/bin/sh /etc/rc.common
+# Example script
+# Copyright (C) 2007 OpenWrt.org
+ 
+START=95
+STOP=01
+EXTRA_COMMANDS="start_tun"
+
+IPT_FILTER_NAME=clatun_filter
+IPT_NAME=clatun
+
+configure() {
+    [ "$enabled" -ne 0 ] || exit 0
+    deconfigure
+
+    ip link set "$tun" up 2> /dev/null
+    ip route replace default dev "$tun" table "$mark" 2> /dev/null
+    if [ "$ipv6" -ne 0 ]; then
+        ip -6 route replace default dev "$tun" table "$mark" 2> /dev/null
+    fi
+
+    ip rule add fwmark "$mark" lookup "$mark"
+    ip -6 rule add fwmark "$mark" lookup "$mark"
+    iptables -A forwarding_rule -i "$iface" -o "$tun" -j ACCEPT
+    ip6tables -A forwarding_rule -i "$iface" -o "$tun" -j ACCEPT
+
+    iptables -t nat -N "$IPT_FILTER_NAME"
+    ip6tables -t nat -N "$IPT_FILTER_NAME"
+    iptables -t nat -N "$IPT_NAME"
+    ip6tables -t nat -N "$IPT_NAME"
+    iptables -t nat -A PREROUTING -j "$IPT_FILTER_NAME"
+    ip6tables -t nat -A PREROUTING -j "$IPT_FILTER_NAME"
+    for mac in $device; do
+        iptables -t nat -A "$IPT_FILTER_NAME" -i "$iface" -m mac --mac-source "$mac" -j "$IPT_NAME"
+        ip6tables -t nat -A "$IPT_FILTER_NAME" -i "$iface" -m mac --mac-source "$mac" -j "$IPT_NAME"
+    done
+    if [ "$dnsport" -ne 0 ]; then
+        iptables -t nat -A "$IPT_NAME" -p tcp --dport 53 -j REDIRECT --to-ports "$dnsport"
+        iptables -t nat -A "$IPT_NAME" -p udp --dport 53 -j REDIRECT --to-ports "$dnsport"
+        ip6tables -t nat -A "$IPT_NAME" -p tcp --dport 53 -j REDIRECT --to-ports "$dnsport"
+        ip6tables -t nat -A "$IPT_NAME" -p udp --dport 53 -j REDIRECT --to-ports "$dnsport"
+    fi
+
+    iptables -t mangle -N "$IPT_FILTER_NAME"
+    ip6tables -t mangle -N "$IPT_FILTER_NAME"
+    iptables -t mangle -N "$IPT_NAME"
+    ip6tables -t mangle -N "$IPT_NAME"
+    iptables -t mangle -A PREROUTING -j "$IPT_FILTER_NAME"
+    ip6tables -t mangle -A PREROUTING -j "$IPT_FILTER_NAME"
+    for mac in $device; do
+        iptables -t mangle -A "$IPT_FILTER_NAME" -i "$iface" -m mac --mac-source "$mac" -j "$IPT_NAME"
+        ip6tables -t mangle -A "$IPT_FILTER_NAME" -i "$iface" -m mac --mac-source "$mac" -j "$IPT_NAME"
+    done
+    for ip4 in $ipv4_bypass; do
+        iptables -t mangle -A "$IPT_NAME" -d "$ip4" -j RETURN
+    done
+    for ip6 in $ipv6_bypass; do
+        ip6tables -t mangle -A "$IPT_NAME" -d "$ip6" -j RETURN
+    done
+    iptables -t mangle -A "$IPT_NAME" -p tcp --dport 53 -j RETURN
+    iptables -t mangle -A "$IPT_NAME" -p udp --dport 53 -j RETURN
+    iptables -t mangle -A "$IPT_NAME" -p udp --dport 123 -j RETURN
+    iptables -t mangle -A "$IPT_NAME" -p tcp -j MARK --set-mark "$mark"
+    iptables -t mangle -A "$IPT_NAME" -p udp -j MARK --set-mark "$mark"
+    ip6tables -t mangle -A "$IPT_NAME" -p tcp --dport 53 -j RETURN
+    ip6tables -t mangle -A "$IPT_NAME" -p udp --dport 53 -j RETURN
+    ip6tables -t mangle -A "$IPT_NAME" -p udp --dport 123 -j RETURN
+    ip6tables -t mangle -A "$IPT_NAME" -p tcp -j MARK --set-mark "$mark"
+    ip6tables -t mangle -A "$IPT_NAME" -p udp -j MARK --set-mark "$mark"
+}
+
+configure_tun() {
+    ip link set "$tun" up 2> /dev/null
+    ip route replace default dev "$tun" table "$mark" 2> /dev/null
+    if [ "$ipv6" -ne 0 ]; then
+        ip -6 route replace default dev "$tun" table "$mark" 2> /dev/null
+    fi
+}
+
+deconfigure() {
+    ip rule del fwmark "$mark" lookup "$mark" 2> /dev/null
+    ip -6 rule del fwmark "$mark" lookup "$mark" 2> /dev/null
+    iptables -D forwarding_rule -i "$iface" -o "$tun" -j ACCEPT 2> /dev/null
+    ip6tables -D forwarding_rule -i "$iface" -o "$tun" -j ACCEPT 2> /dev/null
+
+    iptables -t nat -D PREROUTING -j "$IPT_FILTER_NAME" 2> /dev/null
+    ip6tables -t nat -D PREROUTING -j "$IPT_FILTER_NAME" 2> /dev/null
+    iptables -t nat -F "$IPT_FILTER_NAME" 2> /dev/null
+    ip6tables -t nat -F "$IPT_FILTER_NAME" 2> /dev/null
+    iptables -t nat -F "$IPT_NAME" 2> /dev/null
+    ip6tables -t nat -F "$IPT_NAME" 2> /dev/null
+    iptables -t nat -X "$IPT_FILTER_NAME" 2> /dev/null
+    ip6tables -t nat -X "$IPT_FILTER_NAME" 2> /dev/null
+    iptables -t nat -X "$IPT_NAME" 2> /dev/null
+    ip6tables -t nat -X "$IPT_NAME" 2> /dev/null
+
+    iptables -t mangle -D PREROUTING -j "$IPT_FILTER_NAME" 2> /dev/null
+    ip6tables -t mangle -D PREROUTING -j "$IPT_FILTER_NAME" 2> /dev/null
+    iptables -t mangle -F "$IPT_FILTER_NAME" 2> /dev/null
+    ip6tables -t mangle -F "$IPT_FILTER_NAME" 2> /dev/null
+    iptables -t mangle -F "$IPT_NAME" 2> /dev/null
+    ip6tables -t mangle -F "$IPT_NAME" 2> /dev/null
+    iptables -t mangle -X "$IPT_FILTER_NAME" 2> /dev/null
+    ip6tables -t mangle -X "$IPT_FILTER_NAME" 2> /dev/null
+    iptables -t mangle -X "$IPT_NAME" 2> /dev/null
+    ip6tables -t mangle -X "$IPT_NAME" 2> /dev/null
+}
+
+start() {
+    validate_config
+    configure
+}
+
+start_tun() {
+    validate_config
+    configure_tun
+}
+
+stop() {
+    validate_config
+    deconfigure
+}
+
+uci_validate_section() {
+    local _package="$1"
+    local _type="$2"
+    local _name="$3"
+    local _result
+    local _error
+    shift; shift; shift
+    _result=$(/sbin/validate_data "$_package" "$_type" "$_name" "$@" 2> /dev/null)
+    _error=$?
+    eval "$_result"
+    [ "$_error" = "0" ] || $(/sbin/validate_data "$_package" "$_type" "$_name" "$@" 1> /dev/null)
+    return $_error
+}
+
+validate_config() {
+    uci_validate_section clatun clatun config \
+        'enabled:bool:0' \
+        'ipv6:bool:0' \
+        'tun:string:utun' \
+        'mark:range(0,253):162' \
+        'iface:string:br-lan' \
+        'dnsport:port:0' \
+        'device:list(macaddr)' \
+        'ipv4_bypass:list(cidr4)' \
+        'ipv6_bypass:list(cidr6)'
+    [ "$?" -ne 0 ] && exit 1
+}
